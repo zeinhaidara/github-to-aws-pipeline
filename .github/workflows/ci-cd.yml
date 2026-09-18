@@ -1,0 +1,122 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - dev
+      - stage
+      - main
+  pull_request:
+    branches:
+      - dev
+      - stage
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Build Docker image
+        run: docker build -t github-to-aws-pipeline:${{ github.sha }} .
+
+  stage-security:
+    name: Security and Quality Gate
+    needs: ci
+    if: >-
+      (github.event_name == 'push' && (github.ref == 'refs/heads/stage' || github.ref == 'refs/heads/main')) ||
+      (github.event_name == 'pull_request' && (github.base_ref == 'stage' || github.base_ref == 'main'))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install security tools
+        run: python -m pip install bandit pip-audit
+
+      - name: Run Bandit
+        run: bandit -r app -ll
+
+      - name: Audit Python dependencies
+        run: pip-audit -r requirements.txt
+
+      - name: Scan repository for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image for scanning
+        run: docker build -t github-to-aws-pipeline:${{ github.sha }} .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: github-to-aws-pipeline:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+  cd:
+    name: Deploy to S3
+    needs: [ci, stage-security]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      needs.ci.result == 'success' &&
+      (github.ref == 'refs/heads/dev' || needs.stage-security.result == 'success')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Create deployment proof
+        run: echo "Deployed commit $GITHUB_SHA" > deployment-proof.txt
+
+      - name: Upload deployment proof to S3
+        run: |
+          aws s3 cp deployment-proof.txt \
+            s3://cloudbatch818/github-to-aws-pipeline/deployment-proof.txt
+
+      - name: Deploy landing page to S3
+        run: |
+          aws s3 sync site/ \
+            s3://cloudbatch818/github-to-aws-pipeline/site/
+
