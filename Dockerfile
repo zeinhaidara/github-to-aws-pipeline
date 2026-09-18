@@ -5,6 +5,7 @@ WORKDIR /app
 ENV APP_HOST=0.0.0.0
 
 COPY requirements.txt .
+
 RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
