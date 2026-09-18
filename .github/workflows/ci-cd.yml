@@ -41,8 +41,8 @@ jobs:
     name: Security and Quality Gate
     needs: ci
     if: >-
-      (github.event_name == 'push' && (github.ref == 'refs/heads/stage' || github.ref == 'refs/heads/main')) ||
-      (github.event_name == 'pull_request' && (github.base_ref == 'stage' || github.base_ref == 'main'))
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/stage' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
 
     steps:
