@@ -17,4 +17,6 @@ Test
   ↓
 Authenticate to AWS
   ↓
-Push Image to Amazon ECR
+Publish deployment proof to Amazon S3
+
+The workflow uses GitHub OIDC to assume the configured AWS role and uploads a deployment proof to the `cloudbatch818` S3 bucket in `us-east-2`. ECR is out of scope for this lab.
