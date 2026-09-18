@@ -33,7 +33,7 @@ jobs:
         run: docker build -t github-to-aws-pipeline:${{ github.sha }} .
 
   cd:
-    name: Continuous Delivery
+    name: Deploy to S3
     needs: ci
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -42,28 +42,20 @@ jobs:
       contents: read
       id-token: write
 
-    env:
-      AWS_REGION: us-east-1
-      ECR_REPOSITORY: github-to-aws-pipeline
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: us-east-2
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
 
-      - name: Build and push Docker image
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      - name: Create deployment proof
+        run: echo "Deployed commit $GITHUB_SHA" > deployment-proof.txt
+
+      - name: Upload deployment proof to S3
         run: |
-          IMAGE="$REGISTRY/$ECR_REPOSITORY:${GITHUB_SHA}"
-          docker build -t "$IMAGE" .
-          docker push "$IMAGE"
+          aws s3 cp deployment-proof.txt \
+            s3://cloudbatch818/github-to-aws-pipeline/deployment-proof.txt
